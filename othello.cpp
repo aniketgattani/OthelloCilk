@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <math.h>
+#include <stdio.h>
 #include <iostream>
 #include <climits>
 
@@ -235,7 +236,8 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 	int col;
 	
 	int num_moves = 0;
-	*legal_moves = {0,0};
+	Board start = {0,0};
+	*legal_moves = start;
 	
 	for(row=8; row >=1; row--) {
 		ull thisrow = my_neighbor_moves & ROW8;
@@ -324,7 +326,7 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 				if(rem_moves > 1) {
 					diff = -1*findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0);		
 				}
-								
+
 				if(max_diff < diff){
 					best_move = legal_move;
 					max_diff = diff;
