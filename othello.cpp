@@ -291,6 +291,9 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 
 	int max_diff = -64;
 
+	if(verbose)
+	cout<<"bhadwe"<<endl;
+
 	if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX) return max_diff;
 
 	
@@ -307,10 +310,10 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 				Move legal_move = {row, col};
 				Board boardAfterMove = b;
 
-				// if(verbose)
+				if(verbose)
 				cout<<row<<" ajncsd "<<col<<" "<<rem_moves<<endl;
 
-				int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+				int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 0);
 				PlaceOrFlip(legal_move, &boardAfterMove, color);
 
 				int diff = findDifference(boardAfterMove, color);
@@ -343,6 +346,8 @@ void ComputerTurn(Board *b, int color, int player, int search_depth)
 	
 	printf("Move by Player %d as 'row,col': %d %d \n", player, best_move.row, best_move.col);
 	printf("Player %d flipped %d disks\n", player, nflips);
+
+	cout<<"Ruk jaa bhosidke\n";
 		
 	PrintBoard(*b);
 }
@@ -370,7 +375,7 @@ int main (int argc, const char * argv[])
 	Board gameboard = start;
 	int search_depth = 1;
 	cout<<"Enter c for computer, h for human \n";
-	Player p1 = {'h', 1, true}, p2 = {'h', 2, true};
+	Player p1 = {'h', 1, true}, p2 = {'h', 2, false};
 	cout<<"Player 1: ";
 	cin>>p1.type;
 	cout<<"Player 2: ";
@@ -390,6 +395,8 @@ int main (int argc, const char * argv[])
 			if(p1.type == COMPUTER) ComputerTurn(&gameboard, X_BLACK, p1.number, search_depth);
 			else HumanTurn(&gameboard, X_BLACK);
 		}
+		
+		cout<<"Randi\n";
 		
 		p2.move_possible = 
 			CheckIfMoveIsPossible(gameboard, O_WHITE);
