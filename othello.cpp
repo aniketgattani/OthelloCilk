@@ -118,22 +118,28 @@ void PlaceOrFlip(Move m, Board *b, int color)
 */
 int TryFlips(Move m, Move offset, Board *b, int color, int verbose, int domove)
 {
+
 	Move next;
 	next.row = m.row + offset.row;
 	next.col = m.col + offset.col;
-
-	if (!IS_MOVE_OFF_BOARD(next)) {
+	
+	int nflips = 0;
+	while(!IS_MOVE_OFF_BOARD(next)){
 		ull nextbit = MOVE_TO_BOARD_BIT(next);
 		if (nextbit & b->disks[OTHERCOLOR(color)]) {
-			int nflips = TryFlips(next, offset, b, color, verbose, domove);
-			if (nflips) {
-	if (verbose) printf("flipping disk at %d,%d\n", next.row, next.col);
-	if (domove) PlaceOrFlip(next,b,color);
-	return nflips + 1;
-			}
-		} else if (nextbit & b->disks[color]) return 1;
+			nflips++;
+			if (verbose) printf("flipping disk at %d,%d\n", next.row, next.col);
+			if (domove) PlaceOrFlip(next,b,color);
+		} 
+		else if (nextbit & b->disks[color]) {
+			break;
+		}
+		nflips++;
+		next.row += offset.row;
+		next.col += offset.col;
 	}
-	return 0;
+	
+	return nflips;
 } 
 
 int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
@@ -144,7 +150,7 @@ int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
 	/* try flipping disks along each of the 8 directions */
 	for(i=0;i<noffsets;i++) {
 		int flipresult = TryFlips(m,offsets[i], b, color, verbose, domove);
-		nflips += (flipresult > 0) ? flipresult - 1 : 0;
+		nflips += flipresult;
 	}
 	return nflips;
 }
@@ -289,13 +295,11 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 
 	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
 
-	int max_diff = -64;
+	int max_diff = -65;
 
-	if(verbose)
-	cout<<"bhadwe"<<endl;
-
-	if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX) return max_diff;
-
+	if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX) {
+		return findDifference(b,color);
+	}
 	
 	if(legal_moves.disks[color] == 0) {
 		return (-1*findBestMove(b, OTHERCOLOR(color), rem_moves, m, 0));
@@ -310,20 +314,17 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 				Move legal_move = {row, col};
 				Board boardAfterMove = b;
 
-				if(verbose)
-				cout<<row<<" ajncsd "<<col<<" "<<rem_moves<<endl;
-
-				int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 0);
+				int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 				PlaceOrFlip(legal_move, &boardAfterMove, color);
 
-				int diff = findDifference(boardAfterMove, color);
-				
 				Move next_by_opponent;
+
+				int diff = findDifference(boardAfterMove, color);
 				
 				if(rem_moves > 1) {
 					diff = -1*findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0);		
 				}
-
+								
 				if(max_diff < diff){
 					best_move = legal_move;
 					max_diff = diff;
@@ -346,8 +347,6 @@ void ComputerTurn(Board *b, int color, int player, int search_depth)
 	
 	printf("Move by Player %d as 'row,col': %d %d \n", player, best_move.row, best_move.col);
 	printf("Player %d flipped %d disks\n", player, nflips);
-
-	cout<<"Ruk jaa bhosidke\n";
 		
 	PrintBoard(*b);
 }
@@ -375,7 +374,7 @@ int main (int argc, const char * argv[])
 	Board gameboard = start;
 	int search_depth = 1;
 	cout<<"Enter c for computer, h for human \n";
-	Player p1 = {'h', 1, true}, p2 = {'h', 2, false};
+	Player p1 = {'h', 1, true}, p2 = {'h', 2, true};
 	cout<<"Player 1: ";
 	cin>>p1.type;
 	cout<<"Player 2: ";
@@ -395,8 +394,6 @@ int main (int argc, const char * argv[])
 			if(p1.type == COMPUTER) ComputerTurn(&gameboard, X_BLACK, p1.number, search_depth);
 			else HumanTurn(&gameboard, X_BLACK);
 		}
-		
-		cout<<"Randi\n";
 		
 		p2.move_possible = 
 			CheckIfMoveIsPossible(gameboard, O_WHITE);
