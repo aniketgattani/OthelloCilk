@@ -57,8 +57,8 @@ typedef struct { char type; int number; bool move_possible;} Player;
 
 
 Board start = { 
-	BOARD_BIT(4,4) | BOARD_BIT(5,5) /* X_BLACK */, 
-	BOARD_BIT(4,5) | BOARD_BIT(5,4) /* O_WHITE */
+	BOARD_BIT(4,5) | BOARD_BIT(5,4) /* X_BLACK */, 
+	BOARD_BIT(4,4) | BOARD_BIT(5,5) /* O_WHITE */
 };
  
 Move offsets[] = {
@@ -125,22 +125,23 @@ int TryFlips(Move m, Move offset, Board *b, int color, int verbose, int domove)
 	next.col = m.col + offset.col;
 	
 	int nflips = 0;
+	Board boardAfterMove = *b;
 	while(!IS_MOVE_OFF_BOARD(next)){
 		ull nextbit = MOVE_TO_BOARD_BIT(next);
-		if (nextbit & b->disks[OTHERCOLOR(color)]) {
+		if (nextbit & boardAfterMove.disks[OTHERCOLOR(color)]) {
 			nflips++;
 			if (verbose) printf("flipping disk at %d,%d\n", next.row, next.col);
-			if (domove) PlaceOrFlip(next,b,color);
+			if (domove) PlaceOrFlip(next, &boardAfterMove, color);
 		} 
-		else if (nextbit & b->disks[color]) {
-			break;
+		else if (nextbit & boardAfterMove.disks[color]) {
+			*b = boardAfterMove;
+			return nflips;
 		}
-		nflips++;
+		else return 0;
 		next.row += offset.row;
 		next.col += offset.col;
 	}
-	
-	return nflips;
+	return 0;
 } 
 
 int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
@@ -236,8 +237,8 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 	int col;
 	
 	int num_moves = 0;
-	Board start = {0,0};
-	*legal_moves = start;
+	Board zero = {0,0};
+	*legal_moves = zero;
 	
 	for(row=8; row >=1; row--) {
 		ull thisrow = my_neighbor_moves & ROW8;
@@ -346,7 +347,7 @@ void ComputerTurn(Board *b, int color, int player, int search_depth)
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
 	PlaceOrFlip(best_move, b, color);
-	
+
 	printf("Move by Player %d as 'row,col': %d %d \n", player, best_move.row, best_move.col);
 	printf("Player %d flipped %d disks\n", player, nflips);
 		
