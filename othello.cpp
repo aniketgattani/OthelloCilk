@@ -293,7 +293,7 @@ int findDifference(Board b, int color){
 	return CountBitsOnBoard(b, color) - CountBitsOnBoard(b, OTHERCOLOR(color));
 }
 
-int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
+int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mul){
 
 	Board legal_moves;
 
@@ -306,14 +306,16 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 	}
 	
 	if(legal_moves.disks[color] == 0) {
-		return (-1*findBestMove(b, OTHERCOLOR(color), rem_moves, m, 0));
+		return findBestMove(b, OTHERCOLOR(color), rem_moves, m, 0, -1);
 	}
 
 	Move best_move = {-1,-1};
+	int all_diff[64]; 
 
 	for(int row = 8; row >=1; row--) {
 		for(int col = 8; col >=1; col--) {
 			// legal move exists
+			all_diff[BOARD_BIT_INDEX(row,col)] = -65;
 			if(legal_moves.disks[color] & BOARD_BIT(row, col)){
 				Move legal_move = {row, col};
 				Board boardAfterMove = b;
@@ -323,29 +325,37 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 
 				Move next_by_opponent;
 
-				int diff = findDifference(boardAfterMove, color);
+				all_diff[BOARD_BIT_INDEX(row,col)] = findDifference(boardAfterMove, color);
 				
 				if(rem_moves > 1) {
-					int x = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0);
-					diff = -1*x;		
-				}
+					all_diff[BOARD_BIT_INDEX(row,col)] = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0, -1);		
+				}	
+			}
+		}
+	}
 
-				if(max_diff < diff){
-					best_move = legal_move;
-					max_diff = diff;
-				}
+
+	cilk_sync;
+
+	for(int row=8; row>=1; row--){
+		for(int col=8; col>=1; col--){
+			Move m = {row, col};
+			int diff = all_diff[BOARD_BIT_INDEX(row,col)];
+			if(max_diff < diff){
+				best_move = m;
+				max_diff = diff;
 			}
 		}
 	}
 
 	*m = best_move;
-	return max_diff;
+	return max_diff*mul;
 }
 
 void ComputerTurn(Board *b, int color, int player, int search_depth)
 {
 	Move best_move;
-	findBestMove(*b, color, search_depth, &best_move, 1);
+	findBestMove(*b, color, search_depth, &best_move, 1, 1);
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
 	PlaceOrFlip(best_move, b, color);
