@@ -1,3 +1,4 @@
+#include <cilk/cilk.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -325,7 +326,8 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose){
 				int diff = findDifference(boardAfterMove, color);
 				
 				if(rem_moves > 1) {
-					diff = -1*findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0);		
+					int x = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0);
+					diff = -1*x;		
 				}
 
 				if(max_diff < diff){
