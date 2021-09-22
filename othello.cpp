@@ -249,7 +249,10 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 				if (FlipDisks(m, &b, color, 0, 0) > 0) {
 					legal_moves->disks[color] |= BOARD_BIT(row,col);
 					num_moves++;
+				
 				}
+				//cout<<(b.disks[color] | b.disks[1-color])<<" bhusdix "<<row<<" "<<col<<" "<<num_moves<<endl;
+							
 			}
 			thisrow >>= 1;
 		}
@@ -262,6 +265,8 @@ bool CheckIfMoveIsPossible(Board b, int color)
 {
 	Board legal_moves;
 	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
+	PrintBoard(legal_moves);
+	//cout<<color<<" no-of-moves"<<num_moves<<" "<<(b.disks[color]|b.disks[1-color])<<endl;
 	return num_moves;
 }
 
@@ -298,6 +303,9 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 	Board legal_moves;
 
 	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
+//PrintBoard(legal_moves);
+	//PrintBoard(b);
+	//cout<<"jknjnvjfdv "<<rem_moves<<" "<<color<<endl;
 
 	int max_diff = -65;
 
@@ -305,8 +313,11 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 		return findDifference(b,color);
 	}
 	
-	if(legal_moves.disks[color] == 0) {
-		return findBestMove(b, OTHERCOLOR(color), rem_moves, m, 0, -1);
+	if(num_moves == 0LL) {
+		int num_opp_moves = EnumerateLegalMoves(b, OTHERCOLOR(color), &legal_moves);
+		if(num_opp_moves == 0) return findDifference(b,color);
+		Move next_by_opponent = {-1,-1};
+		return findBestMove(b, OTHERCOLOR(color), rem_moves, &next_by_opponent, 0, -1);
 	}
 
 	Move best_move = {-1,-1};
@@ -323,13 +334,12 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 				int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 				PlaceOrFlip(legal_move, &boardAfterMove, color);
 
-				Move next_by_opponent;
-
-				all_diff[BOARD_BIT_INDEX(row,col)] = findDifference(boardAfterMove, color);
+				Move next_by_opponent = {-1,-1};
 				
 				if(rem_moves > 1) {
 					all_diff[BOARD_BIT_INDEX(row,col)] = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0, -1);		
-				}	
+				}
+				else all_diff[BOARD_BIT_INDEX(row,col)] = findDifference(boardAfterMove, color);
 			}
 		}
 	}
@@ -339,22 +349,23 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 
 	for(int row=8; row>=1; row--){
 		for(int col=8; col>=1; col--){
-			Move m = {row, col};
+			Move move = {row, col};
 			int diff = all_diff[BOARD_BIT_INDEX(row,col)];
 			if(max_diff < diff){
-				best_move = m;
+				best_move = move;
 				max_diff = diff;
 			}
 		}
 	}
-
+	if(verbose)
 	*m = best_move;
 	return max_diff*mul;
 }
 
 void ComputerTurn(Board *b, int color, int player, int search_depth)
 {
-	Move best_move;
+	Move best_move = {-1,-1};
+	//cout<<(b->disks[color] | b->disks[1-color])<<" "<<player<<" randichoz"<<endl;
 	findBestMove(*b, color, search_depth, &best_move, 1, 1);
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
