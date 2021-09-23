@@ -1,10 +1,14 @@
+#include <time.h>
 #include <cilk/cilk.h>
+#include <cilk/reducer_opadd.h>
+#include <cilk/reducer_max.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <iostream>
 #include <climits>
-
+#include <cilk/cilk_api.h>
+#include "timer.h"
 using namespace std;
 
 #define BIT 0x1
@@ -149,13 +153,15 @@ int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
 {
 	int i;
 	int nflips = 0;
-	
+	//cilk::reducer_opadd<int> nflips;	
+
 	/* try flipping disks along each of the 8 directions */
 	for(i=0;i<noffsets;i++) {
 		int flipresult = TryFlips(m,offsets[i], b, color, verbose, domove);
 		nflips += flipresult;
 	}
 	return nflips;
+	//return nflips.get_value();
 }
 
 void HumanTurn(Board *b, int color)
@@ -265,7 +271,7 @@ bool CheckIfMoveIsPossible(Board b, int color)
 {
 	Board legal_moves;
 	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
-	PrintBoard(legal_moves);
+	//PrintBoard(legal_moves);
 	//cout<<color<<" no-of-moves"<<num_moves<<" "<<(b.disks[color]|b.disks[1-color])<<endl;
 	return num_moves;
 }
@@ -290,43 +296,42 @@ void EndGame(Board b)
 		printf("Tie game. Each player has %d disks\n", o_score);
 	} else { 
 		printf("X has %d disks. O has %d disks. %c wins.\n", x_score, o_score, 
-				(x_score > o_score ? 'X' : 'O'));
-	}
-}
-
-int findDifference(Board b, int color){
-	return CountBitsOnBoard(b, color) - CountBitsOnBoard(b, OTHERCOLOR(color));
-}
-
-int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mul){
-
-	Board legal_moves;
-
-	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
-//PrintBoard(legal_moves);
-	//PrintBoard(b);
-	//cout<<"jknjnvjfdv "<<rem_moves<<" "<<color<<endl;
-
-	int max_diff = -65;
-
-	if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX) {
-		return findDifference(b,color);
-	}
-	
-	if(num_moves == 0LL) {
-		int num_opp_moves = EnumerateLegalMoves(b, OTHERCOLOR(color), &legal_moves);
-		if(num_opp_moves == 0) return findDifference(b,color);
-		Move next_by_opponent = {-1,-1};
-		return findBestMove(b, OTHERCOLOR(color), rem_moves, &next_by_opponent, 0, -1);
+					(x_score > o_score ? 'X' : 'O'));
+		}
 	}
 
-	Move best_move = {-1,-1};
-	int all_diff[64]; 
+	int findDifference(Board b, int color){
+		return CountBitsOnBoard(b, color) - CountBitsOnBoard(b, OTHERCOLOR(color));
+	}
 
-	for(int row = 8; row >=1; row--) {
+	int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mul){
+
+		Board legal_moves;
+
+		int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
+	//PrintBoard(legal_moves);
+		//PrintBoard(b);
+		//cout<<"jknjnvjfdv "<<rem_moves<<" "<<color<<endl;
+
+		int max_diff = -65;
+
+		if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX  || rem_moves == 0) {
+			return findDifference(b,color);
+		}
+		
+		if(num_moves == 0LL) {
+			int num_opp_moves = EnumerateLegalMoves(b, OTHERCOLOR(color), &legal_moves);
+			if(num_opp_moves == 0) return findDifference(b,color);
+			Move next_by_opponent = {-1,-1};
+			return findBestMove(b, OTHERCOLOR(color), rem_moves, &next_by_opponent, 0, -1);
+		}
+
+		cilk::reducer_max_index<Move, int> best_diff;	
+
+
+		for(int row = 8; row >=1; row--) {
 		for(int col = 8; col >=1; col--) {
 			// legal move exists
-			all_diff[BOARD_BIT_INDEX(row,col)] = -65;
 			if(legal_moves.disks[color] & BOARD_BIT(row, col)){
 				Move legal_move = {row, col};
 				Board boardAfterMove = b;
@@ -336,10 +341,13 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 
 				Move next_by_opponent = {-1,-1};
 				
-				if(rem_moves > 1) {
-					all_diff[BOARD_BIT_INDEX(row,col)] = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0, -1);		
+				if(rem_moves >= 3) {
+					int diff = cilk_spawn findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0, -1);		
+					best_diff.calc_max(legal_move, diff);
 				}
-				else all_diff[BOARD_BIT_INDEX(row,col)] = findDifference(boardAfterMove, color);
+				else {	
+					best_diff.calc_max(legal_move, findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, &next_by_opponent, 0, -1));		
+				}
 			}
 		}
 	}
@@ -347,19 +355,8 @@ int findBestMove(Board b, int color, int rem_moves, Move *m, int verbose, int mu
 
 	cilk_sync;
 
-	for(int row=8; row>=1; row--){
-		for(int col=8; col>=1; col--){
-			Move move = {row, col};
-			int diff = all_diff[BOARD_BIT_INDEX(row,col)];
-			if(max_diff < diff){
-				best_move = move;
-				max_diff = diff;
-			}
-		}
-	}
-	if(verbose)
-	*m = best_move;
-	return max_diff*mul;
+	*m =  best_diff.get_index();
+	return best_diff.get_value() * mul;
 }
 
 void ComputerTurn(Board *b, int color, int player, int search_depth)
@@ -397,6 +394,7 @@ bool EvaluateInputs(Player p1, Player p2, int search_depth){
 
 int main (int argc, const char * argv[]) 
 {
+	clock_t t;
 	Board gameboard = start;
 	int search_depth = 1;
 	cout<<"Enter c for computer, h for human \n";
@@ -405,6 +403,7 @@ int main (int argc, const char * argv[])
 	cin>>p1.type;
 	cout<<"Player 2: ";
 	cin>>p2.type;
+	
 	if(p1.type == COMPUTER || p2.type == COMPUTER){
 		cout<<"Enter search depth for the computer: (At max 7): ";
 		cin>>search_depth;
@@ -415,6 +414,8 @@ int main (int argc, const char * argv[])
 	}
 
 	PrintBoard(gameboard);
+	t = clock();
+	timer_start();
 	do {
 		if(p1.move_possible){
 			if(p1.type == COMPUTER) ComputerTurn(&gameboard, X_BLACK, p1.number, search_depth);
@@ -435,6 +436,10 @@ int main (int argc, const char * argv[])
 	} while(p1.move_possible | p2.move_possible);
 	
 	EndGame(gameboard);
+	double seconds = timer_elapsed();
+	t = clock() - t;
+	double time  = t/((double)CLOCKS_PER_SEC);
+	cout<<"Time taken: "<<t<<" "<<time<<" "<<seconds<<" "<< __cilkrts_get_nworkers()<<endl;
 	
 	int x=0;
 	scanf("%d",&x);
