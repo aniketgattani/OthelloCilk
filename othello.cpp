@@ -18,7 +18,7 @@ using namespace std;
 
 #define HUMAN 'h'
 #define COMPUTER 'c'
-#define CHUNK_SIZE 2
+#define CHUNK_SIZE 3
 
 #define BOARD_BIT_INDEX(row,col) ((8 - (row)) * 8 + (8 - (col)))
 #define BOARD_BIT(row,col) (0x1LL << BOARD_BIT_INDEX(row,col))
@@ -360,27 +360,29 @@ void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::red
 	return;
 }
 
-void ComputerTurn(Board *b, Player player)
+void ComputerTurn(Board *b, Player *player)
 {
 
-	int color = player.color;
+	int color = player->color;
 	cilk::reducer_max<pair<Move, int>, MoveComparison> best_diff;  
 	Move best_move = {-1,-1};
 
-	findBestMove(*b, best_move, color, player.depth, best_diff, 1,1);
+	findBestMove(*b, best_move, color, player->depth, best_diff, 1,1);
 	best_move = best_diff.get_value().first;
 
 	if(isStartMove(best_move)){
-		printf("No legal move left for Player %d. Skipping turn\n", player.number);
-		player.move_possible = false;
+		printf("No legal move left for Player %d. Skipping turn\n", color+1);
+		player->move_possible = false;
 		return;
 	}
+	
+	player->move_possible = true;
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
 	PlaceOrFlip(best_move, b, color);
 
-	printf("Move by Player %d as 'row,col': %d %d \n", player.color + 1, best_move.row, best_move.col);
-	printf("Player %d flipped %d disks \n",  player.color+1, nflips);
+	printf("Move by Player %d as 'row,col': %d %d \n", color + 1, best_move.row, best_move.col);
+	printf("Player %d flipped %d disks \n",  color+1, nflips);
 	PrintBoard(*b);
 }
 
@@ -407,10 +409,10 @@ bool EvaluateInputs(Player p1, Player p2){
 	return result;
 }
 
-void TakeTurn(Board *gameboard, Player p){
+void TakeTurn(Board *gameboard, Player *p){
 	
-	if(p.type == COMPUTER) ComputerTurn(gameboard, p);
-	else HumanTurn(gameboard, p.color);
+	if(p->type == COMPUTER) ComputerTurn(gameboard, p);
+	else HumanTurn(gameboard, p->color);
 }
 
 int main (int argc, const char * argv[]) 
@@ -445,14 +447,10 @@ int main (int argc, const char * argv[])
 	timer_start();
 	
 	do {
-		if(p1.move_possible){
-			TakeTurn(&gameboard, p1);
-		}
+		TakeTurn(&gameboard, &p1);
 		
-		if(p2.move_possible){
-			TakeTurn(&gameboard, p2);
-		}
-		
+		TakeTurn(&gameboard, &p2);
+
 	} while(p1.move_possible | p2.move_possible);
 	
 	EndGame(gameboard);
