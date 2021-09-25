@@ -322,11 +322,15 @@ void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::red
 		ull thisrow = my_neighbor_moves & ROW8;
 		for(int col=8; thisrow && (col >= 1); col--) {
 			if (thisrow & COL8) {
-				Move legal_move = { row, col };
-				Board boardAfterMove = b;
-				if (FlipDisks(legal_move, &boardAfterMove, color, 0, 1) > 0) {
+				Move m = { row, col };
+				if (FlipDisks(m, &b, color, 0, 0) > 0) {
+					Move legal_move = {row, col};
+					Board boardAfterMove = b;
 
+					FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 					PlaceOrFlip(legal_move, &boardAfterMove, color);
+				
+					Move next_by_opponent;	
 					if(rem_moves >= CHUNK_SIZE){
 						cilk_spawn findBestMove(boardAfterMove, legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
 					}
