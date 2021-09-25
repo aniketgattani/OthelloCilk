@@ -52,9 +52,9 @@ clean:
 	/bin/rm -f $(OBJ)
 
 runp-hpc: $(EXEC) 
-	@echo use make runp-hpc W=nworkers P1=player P2=player D=depth C=close
+	@echo use make runp-hpc W=nworkers
 	@/bin/rm -rf $(EXEC).m $(EXEC).d
-	$(XX) hpcrun -e REALTIME@1000 -t -o $(EXEC).m ./$(EXEC) $(W) < $(I) 
+	$(XX) hpcrun -e REALTIME@1000 -t -o $(EXEC).m ./$(EXEC) < $(I) 
 	hpcstruct $(EXEC)
 	hpcprof -S $(EXEC).hpcstruct -o $(EXEC).d $(EXEC).m
 	hpcviewer $(EXEC).d 

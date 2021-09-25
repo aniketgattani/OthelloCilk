@@ -1,10 +1,8 @@
-#include <time.h>
+#include <stdio.h>
 #include <cilk/cilk.h>
-#include <cilk/reducer_opadd.h>
 #include <cilk/reducer_max.h>
 #include <stdlib.h>
 #include <math.h>
-#include <stdio.h>
 #include <iostream>
 #include <climits>
 #include <cilk/cilk_api.h>
@@ -262,10 +260,7 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 				if (FlipDisks(m, &b, color, 0, 0) > 0) {
 					legal_moves->disks[color] |= BOARD_BIT(row,col);
 					num_moves++;
-				
-				}
-				//cout<<(b.disks[color] | b.disks[1-color])<<" bhusdix "<<row<<" "<<col<<" "<<num_moves<<endl;
-							
+				}							
 			}
 			thisrow >>= 1;
 		}
@@ -273,14 +268,6 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 	}
 	return num_moves;
 }
-
-bool CheckIfMoveIsPossible(Board b, int color)
-{
-	Board legal_moves;
-	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);
-	return num_moves;
-}
-
 
 int CountBitsOnBoard(Board b, int color)
 {
@@ -309,6 +296,10 @@ int findDifference(Board b, int color){
 	return CountBitsOnBoard(b, color) - CountBitsOnBoard(b, OTHERCOLOR(color));
 }
 
+bool isStartMove(Move m){
+	return (m.row == -1 and m.col == -1);
+}
+
 void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::reducer_max<pair<Move,int>, MoveComparison> &best_diff, int verbose, int mul){
 
 	Board legal_moves;
@@ -322,7 +313,11 @@ void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::red
 		return;
 	}
 		
-	if(num_moves == 0LL) {
+	if(num_moves == 0LL) {	
+		if(isStartMove(parent_move)){
+			return;
+		}
+
 		int num_opp_moves = EnumerateLegalMoves(b, OTHERCOLOR(color), &legal_moves);
 		if(num_opp_moves == 0) {
 			best_diff.calc_max({parent_move, findDifference(b,color)});
@@ -358,7 +353,7 @@ void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::red
 	cilk_sync;
 	int diff = best_child_diff.get_value().second * mul;
 
-	if(parent_move.row == -1 and parent_move.col == -1){
+	if(isStartMove(parent_move)){
 		best_diff.calc_max({best_child_diff.get_value().first, diff});
 	}
 	else best_diff.calc_max({parent_move, diff});
@@ -375,11 +370,17 @@ void ComputerTurn(Board *b, Player player)
 	findBestMove(*b, best_move, color, player.depth, best_diff, 1,1);
 	best_move = best_diff.get_value().first;
 
+	if(isStartMove(best_move)){
+		printf("No legal move left for Player %d. Skipping turn\n", player.number);
+		player.move_possible = false;
+		return;
+	}
+
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
 	PlaceOrFlip(best_move, b, color);
 
-printf("Move by Player %d as 'row,col': %d %d \n", player.color + 1, best_move.row, best_move.col);
-		
+	printf("Move by Player %d as 'row,col': %d %d \n", player.color + 1, best_move.row, best_move.col);
+	printf("Player %d flipped %d disks \n",  player.color+1, nflips);
 	PrintBoard(*b);
 }
 
@@ -393,13 +394,13 @@ bool EvaluateInputs(Player p1, Player p2){
 		cout<<"p2 player type is incorrect \n";
 		result = false;
 	}
-	if(p1.depth > 7 or p1.depth < 1){
-		cout<<"search depth for computer 1 should be between 1-7 \n";
+	if(p1.depth > 60 or p1.depth < 1){
+		cout<<"search depth for computer 1 should be between 1-60 \n";
 		result = false;
 	}
 
-	if(p2.depth > 7 or p2.depth < 1){
-		cout<<"search depth for computer 2 should be between 1-7 \n";
+	if(p2.depth > 60 or p2.depth < 1){
+		cout<<"search depth for computer 2 should be between 1-60 \n";
 		result = false;
 	}
 
@@ -424,15 +425,14 @@ int main (int argc, const char * argv[])
 	cout<<"Player 1: ";
 	cin>>p1.type;
 	if(p1.type == COMPUTER){
-		cout<<"Enter search depth for the computer 1: (At max 7): ";
+		cout<<"Enter search depth for the computer 1: (At max 60): ";
 		cin>>p1.depth;
 	}
-
 
 	cout<<"Player 2: ";	
 	cin>>p2.type;	
 	if(p2.type == COMPUTER){
-		cout<<"Enter search depth for the computer 2: (At max 7): ";
+		cout<<"Enter search depth for the computer 2: (At max 60): ";
 		cin>>p2.depth;
 	}
 	
@@ -443,20 +443,15 @@ int main (int argc, const char * argv[])
 	PrintBoard(gameboard);
 	t = clock();
 	timer_start();
+	
 	do {
 		if(p1.move_possible){
 			TakeTurn(&gameboard, p1);
 		}
 		
-		p2.move_possible = 
-			CheckIfMoveIsPossible(gameboard, p2.color);
-		
 		if(p2.move_possible){
 			TakeTurn(&gameboard, p2);
 		}
-
-		p1.move_possible = 
-			CheckIfMoveIsPossible(gameboard, p1.color);
 		
 	} while(p1.move_possible | p2.move_possible);
 	
