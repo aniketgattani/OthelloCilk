@@ -408,7 +408,7 @@ bool isStartMove(Move m){
 	mul - factor by which the best diff has to be multiplied to return the diff to the parent. This is in 
 		context with negamax algorithm. The max for player is -1*(max of opponent) assuming both play optimally. 
 */
-pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int mul, bool is_parent_skipped){
+int findBestMove(Board b, int color, int depth, int rem_moves, int verbose, int mul, bool is_parent_skipped, Move &best_move){
 
 	Move no_move = {-1, -1};
 	Board legal_moves_vector;
@@ -416,10 +416,10 @@ pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int
 	//vector<Move> legal_moves_vector(legal_moves.begin(), legal_moves.end());	
 	//cout<<rem_moves<<"bhusdix "<<color<<" "<<legal_moves.get_value().size()<<endl;
 	int num_moves = CountBitsOnBoard(legal_moves_vector, color);
-	cilk::reducer_max<pair<Move, int>, MoveComparison> best_child_diff;	
-
+	cilk::reducer_max<int> best_child_diff;	
+	int max=-65;
 	//for(list<Move>::const_iterator legal_move = legal_moves.begin(); legal_move != legal_moves.end(); legal_move++){
-	if(rem_moves >= CHUNK_SIZE){ 
+	if(depth != 1){ 
 		cilk_for(int i=0; i<num_moves; i++){
 			Board boardAfterMove = b;
 			ull legal_moves = legal_moves_vector.disks[color];
@@ -436,11 +436,11 @@ pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int
 			  	  //legal_moves.push_back(legal_move);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
 			//if(rem_moves >= CHUNK_SIZE)
-			if(rem_moves==1) best_child_diff.calc_max({legal_move, findDifference(boardAfterMove, color)});
+			if(rem_moves==depth) best_child_diff.calc_max(findDifference(boardAfterMove, color));
 			else {
-				pair<Move, int> best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, 0, -1, false);	  	  	  
+				int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	  	  	  
 			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
-				best_child_diff.calc_max({legal_move, best_child_move.second});
+				best_child_diff.calc_max(best_child_move);
 			}
 		}			
 	}
@@ -461,12 +461,13 @@ pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int
 			  	  //legal_moves.push_back(legal_move);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
 			//if(rem_moves >= CHUNK_SIZE)
-			if(rem_moves==1) best_child_diff.calc_max({legal_move, findDifference(boardAfterMove, color)});
-			else {
-				pair<Move, int> best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, 0, -1, false);	  	  	  
-			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
-				best_child_diff.calc_max({legal_move, best_child_move.second});
+			int diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	
+			if(diff > max){
+  	  	  		max=diff;
+				best_move = legal_move;
 			}
+			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
+				//best_child_diff.calc_max({legal_move, best_child_move.second});
 		}			
 	}
 	//cilk_sync;
@@ -480,17 +481,17 @@ pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int
 		//Board opponent_moves;
 		//EnumerateLegalMoves(b,1-color, opponent_moves);
 		if(is_parent_skipped){
-			return {no_move, findDifference(b,color)};
+			return findDifference(b,color)*mul;
 		}
 
-		else return findBestMove(b, OTHERCOLOR(color), rem_moves, 0, -1, true);
+		else return findBestMove(b, OTHERCOLOR(color), depth, rem_moves, 0, -1, true, best_move);
 	}
 	
 	/* store the corresponding moves and difference*/
-	int diff = best_child_diff.get_value().second * mul;
+	int diff = best_child_diff.get_value() * mul;
 	
 //	cout<<"koi pahycnha ki nahi "<<num_moves<<' '<<diff<<endl;
-	return {best_child_diff.get_value().first, diff};
+	return diff;
 }
 
 void ComputerTurn(Board *b, Player *player)
@@ -503,8 +504,8 @@ void ComputerTurn(Board *b, Player *player)
 	/* start case when best move is unknown or not possible */
 	Move best_move = {-1,-1};
 
-	pair<Move, int> best_diff= findBestMove(*b, color, player->depth, 0, 1, true);
-	best_move = best_diff.first;
+	int best_diff= findBestMove(*b, color, 1, player->depth, 0, 1, true, best_move);
+	//best_move = best_diff.first;
 	/* if the best move is not possible then skip turn else print it*/
 	
 	//EnumerateLegalMoves(*b, color, legal_moves);
