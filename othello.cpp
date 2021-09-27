@@ -23,7 +23,7 @@ using namespace std;
 #define HUMAN 'h' // to identify player as human
 #define COMPUTER 'c' // to identify player as computer 
 #define CHUNK_SIZE 3 // for truncating some parallel execution to increase chunk size
-#define CHUNK_SIZE_1 5
+#define CHUNK_SIZE_1 10
 
 #define BOARD_BIT_INDEX(row,col) ((8 - (row)) * 8 + (8 - (col)))
 #define BOARD_BIT(row,col) (0x1LL << BOARD_BIT_INDEX(row,col))
@@ -83,8 +83,8 @@ public:
 	Move m1 = p1.first;
 	Move m2 = p2.first;
 	if(p1.second != p2.second) return p1.second < p2.second;
-	if(m1.row != m2.row) return m1.row < m2.row;
-	return (m1.col < m2.col);
+	if(m1.row != m2.row) return m1.row > m2.row;
+	return (m1.col > m2.col);
   }
 };
 
@@ -187,7 +187,7 @@ int TryFlips(Move m, Move offset, Board *b, int color, int verbose, int domove)
 		next.col += offset.col;
 	}
 	return 0;
-} 
+}
 
 int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
 {
@@ -358,20 +358,21 @@ int CountBitsOnBoard(Board b, int color)
 	return CountBitsOnBoard(*legal_moves, color);
 }*/
 
-list<Move> EnumerateLegalMoves(Board b, int color){
-	cilk::reducer_list_append<Move> legal_moves;
+void EnumerateLegalMoves(Board b, int color, Board &legal_moves){
+	cilk::reducer_opor<ull> reducer_legal_moves;
+	legal_moves.disks[color] = 0;
 	ull occupied_disks = b.disks[color] | b.disks[OTHERCOLOR(color)];
-	cilk_for(int row = 8; row >= 1; row--){
-
+	for(int row = 8; row >= 1; row--){
 		Board bb = b;
 		for(int col = 8; col >=1; col--){
 			Move m = {row, col};
 			if(((occupied_disks & MOVE_TO_BOARD_BIT(m)) == 0) && FlipDisks(m, &bb, color, 0, 0) > 0 ){
-				legal_moves.push_back(m);
+				legal_moves.disks[color] |= MOVE_TO_BOARD_BIT(m);	
 			}
 		}
 	}
-	return legal_moves.get_value();
+	//legal_moves.disks[color] = reducer_legal_moves.get_value();
+	return;
 }
 void EndGame(Board b)
 {
@@ -407,87 +408,111 @@ bool isStartMove(Move m){
 	mul - factor by which the best diff has to be multiplied to return the diff to the parent. This is in 
 		context with negamax algorithm. The max for player is -1*(max of opponent) assuming both play optimally. 
 */
-void findBestMove(Board b, Move parent_move, int color, int rem_moves, cilk::reducer_max<pair<Move,int>, MoveComparison> &best_diff, int verbose, int mul, bool is_parent_skipped){
+pair<Move, int> findBestMove(Board b, int color, int rem_moves, int verbose, int mul, bool is_parent_skipped){
 
-	if((b.disks[color] | b.disks[OTHERCOLOR(color)]) == ULLONG_MAX  || rem_moves == 0) {
-		best_diff.calc_max({parent_move, findDifference(b,color)});
-		return;
-	}
-
-
-
-	list<Move> legal_moves = EnumerateLegalMoves(b, color);	
-		
+	Move no_move = {-1, -1};
+	Board legal_moves_vector;
+	EnumerateLegalMoves(b, color, legal_moves_vector);	
+	//vector<Move> legal_moves_vector(legal_moves.begin(), legal_moves.end());	
 	//cout<<rem_moves<<"bhusdix "<<color<<" "<<legal_moves.get_value().size()<<endl;
-	int num_moves = 0;
+	int num_moves = CountBitsOnBoard(legal_moves_vector, color);
 	cilk::reducer_max<pair<Move, int>, MoveComparison> best_child_diff;	
 
-	for(list<Move>::const_iterator legal_move = legal_moves.begin(); legal_move != legal_moves.end(); legal_move++){
-
-		Board boardAfterMove = b;
+	//for(list<Move>::const_iterator legal_move = legal_moves.begin(); legal_move != legal_moves.end(); legal_move++){
+	if(rem_moves >= CHUNK_SIZE){ 
+		cilk_for(int i=0; i<num_moves; i++){
+			Board boardAfterMove = b;
+			ull legal_moves = legal_moves_vector.disks[color];
+			ull a = 1;
+			for(int j=0; j < i; j++){
+				
+				legal_moves ^= (a << __builtin_ctzll(legal_moves));
+			}
+			int lowestSetBit =  __builtin_ctzll(legal_moves);
+			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
 		//cout<<";laud "<< legal_move->row<<" "<<legal_move->col<<" "<<rem_moves<<endl;
 		//FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
-			FlipDisks(*legal_move, &boardAfterMove, color, 0, 1);
+			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 			  	  //legal_moves.push_back(legal_move);
-			num_moves++;
-			PlaceOrFlip(*legal_move, &boardAfterMove, color);                      
-			if(rem_moves >= CHUNK_SIZE)
-				cilk_spawn findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);	  	  	  
-			else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
-		
-}
-
-	cilk_sync;
+			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
+			//if(rem_moves >= CHUNK_SIZE)
+			if(rem_moves==1) best_child_diff.calc_max({legal_move, findDifference(boardAfterMove, color)});
+			else {
+				pair<Move, int> best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, 0, -1, false);	  	  	  
+			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
+				best_child_diff.calc_max({legal_move, best_child_move.second});
+			}
+		}			
+	}
+	else{
+		for(int i=0; i<num_moves; i++){
+			Board boardAfterMove = b;
+			ull legal_moves = legal_moves_vector.disks[color];
+			ull a = 1;
+			for(int j=0; j < i; j++){
+				
+				legal_moves ^= (a << __builtin_ctzll(legal_moves));
+			}
+			int lowestSetBit =  __builtin_ctzll(legal_moves);
+			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
+		//cout<<";laud "<< legal_move->row<<" "<<legal_move->col<<" "<<rem_moves<<endl;
+		//FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+			  	  //legal_moves.push_back(legal_move);
+			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
+			//if(rem_moves >= CHUNK_SIZE)
+			if(rem_moves==1) best_child_diff.calc_max({legal_move, findDifference(boardAfterMove, color)});
+			else {
+				pair<Move, int> best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), rem_moves-1, 0, -1, false);	  	  	  
+			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
+				best_child_diff.calc_max({legal_move, best_child_move.second});
+			}
+		}			
+	}
+	//cilk_sync;
 	/* if there are no legal moves left then there can be 3 cases:
 		1. Even the first turn cannot be played by the player. In this we just skip.
 		2. Keep on searching the next best move by the opponent and try to minimize this. 
 		3. If there are no moves left even for opponent then the game has to end.
 	*/
-	if(num_moves == 0LL) {	
-		if(isStartMove(parent_move)){
-			return;
+	if(num_moves == 0LL) {
+	
+		//Board opponent_moves;
+		//EnumerateLegalMoves(b,1-color, opponent_moves);
+		if(is_parent_skipped){
+			return {no_move, findDifference(b,color)};
 		}
 
-		list<Move> opponent_moves = EnumerateLegalMoves(b,1-color);
-		if(opponent_moves.size()==0){
-			best_diff.calc_max({parent_move, findDifference(b,color)});
-			return;
-		}
-
-		findBestMove(b, parent_move, OTHERCOLOR(color), rem_moves, best_diff, 0, -1, true);
-		return;
+		else return findBestMove(b, OTHERCOLOR(color), rem_moves, 0, -1, true);
 	}
 	
 	/* store the corresponding moves and difference*/
 	int diff = best_child_diff.get_value().second * mul;
 	
 //	cout<<"koi pahycnha ki nahi "<<num_moves<<' '<<diff<<endl;
-	if(isStartMove(parent_move)) {
-		best_diff.calc_max({best_child_diff.get_value().first, diff});
-	}
-	else best_diff.calc_max({parent_move, diff});
-	return;
+	return {best_child_diff.get_value().first, diff};
 }
 
 void ComputerTurn(Board *b, Player *player)
 {
 
 	int color = player->color;
-	cilk::reducer_max<pair<Move, int>, MoveComparison> best_diff;  
+
+//	cilk::reducer_max<pair<Move, int>, MoveComparison> best_diff;  
 	
 	/* start case when best move is unknown or not possible */
 	Move best_move = {-1,-1};
 
-	findBestMove(*b, best_move, color, player->depth, best_diff, 1, 1, false);
-	best_move = best_diff.get_value().first;
-
+	pair<Move, int> best_diff= findBestMove(*b, color, player->depth, 0, 1, true);
+	best_move = best_diff.first;
 	/* if the best move is not possible then skip turn else print it*/
+	
+	//EnumerateLegalMoves(*b, color, legal_moves);
 	if(isStartMove(best_move)){
 		printf("No legal move left for Player %d. Skipping turn\n", color+1);
 		player->move_possible = false;
 		return;
 	}
-	
 	player->move_possible = true;
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
