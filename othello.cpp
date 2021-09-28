@@ -13,7 +13,7 @@
 #include <vector>
 #include <utility> // for using std::pair
 using namespace std;
-
+double seconds = 0;
 #define BIT 0x1
 
 #define X_BLACK 0
@@ -251,22 +251,26 @@ Board NeighborMoves(Board b, int color)
 	neighbors.disks[color] &= ~(b.disks[X_BLACK] | b.disks[O_WHITE]);
 	return neighbors;
 }
-
+bool isOccupied(Board *b, Move m){
+	
+	ull occupied_disks = (b->disks[O_WHITE] | b->disks[X_BLACK]);
+	return (occupied_disks & MOVE_TO_BOARD_BIT(m)) > 0LL;	
+}
 void addLegalMoves(ull my_neighbor_moves, Board *b, int color, int verbose, int domove, Board *legal_moves){
 	for(int row= 8; row >= 1; row--) {
-        ull thisrow = my_neighbor_moves & ROW8;
-        for(int col= 8 ; thisrow && (col >= 1); col--) {
-            if (thisrow & COL8) {
-				Move m = { row, col };
+        	ull thisrow = my_neighbor_moves & ROW8;
+        	for(int col= 8 ; thisrow && (col >= 1); col--) {
+            		Move m = {row, col};
+			if ((thisrow & COL8) && !isOccupied(b, m)) {
 				int nflips = FlipDisks(m, b, color, verbose, domove);
 				if(nflips > 0 ) {
 					legal_moves->disks[color] |= BOARD_BIT(m.row, m.col);
 				} 
-            }
-            thisrow >>= 1;
-        }
-        my_neighbor_moves >>= 8;
-    }
+            		}
+            		thisrow >>= 1;
+        	}
+        	my_neighbor_moves >>= 8;
+    	}
 
 	return;
 }
@@ -287,7 +291,7 @@ int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 	ull my_neighbor_moves = neighbors.disks[color];
 	
 	int num_moves = 0;
-	int neighbors = CountBitsOnBoard(neighbors, color);
+	int num_neighbors = CountBitsOnBoard(neighbors, color);
 
 	addLegalMoves(my_neighbor_moves, &b, color, 0, 0, legal_moves);
 
@@ -319,8 +323,8 @@ bool isStartMove(Move m){
 int findBestMove(Board b, int color, int depth, int search_depth, int verbose, int mul, bool is_parent_skipped, Move &best_move){
 
 	Move no_move = {-1, -1};
-	Board legal_moves;
-	int num_moves = EnumerateLegalMoves(b, color, legal_moves);	
+	Board legal_moves = {0,0};
+	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);	
 	
 	cilk::reducer_max<int> best_diff;	
 	int max_diff = -65;
@@ -328,41 +332,42 @@ int findBestMove(Board b, int color, int depth, int search_depth, int verbose, i
 	if(depth != 1){ 
 		cilk_for(int i=0; i<num_moves; i++){
 			Board boardAfterMove = b;
-			ull legal_moves = legal_moves_vector.disks[color];
+			ull legal_moves_ull = legal_moves.disks[color];
 			ull a = 1;
 			for(int j=0; j < i; j++){
-				legal_moves ^= (a << __builtin_ctzll(legal_moves));
+				legal_moves_ull ^= (a << __builtin_ctzll(legal_moves_ull));
 			}
-			int lowestSetBit =  __builtin_ctzll(legal_moves);
+			int lowestSetBit =  __builtin_ctzll(legal_moves_ull);
 			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
 			
 			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
 			
-			if(rem_moves==depth) best_child_diff.calc_max(findDifference(boardAfterMove, color));
+			if(search_depth==depth) best_diff.calc_max(findDifference(boardAfterMove, color));
 			else {
-				int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	  	  	  
-				best_child_diff.calc_max(best_child_move);
+				int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	  	  	  
+				best_diff.calc_max(best_child_move);
 			}
 		}			
 	}
 	else{
+		//PrintBoard(legal_moves);
 		for(int i=0; i<num_moves; i++){
 			Board boardAfterMove = b;
-			ull legal_moves = legal_moves_vector.disks[color];
+			ull legal_moves_ull = legal_moves.disks[color];
 			ull a = 1;
 			for(int j=0; j < i; j++){		
-				legal_moves ^= (a << __builtin_ctzll(legal_moves));
+				legal_moves_ull ^= (a << __builtin_ctzll(legal_moves_ull));
 			}
-			int lowestSetBit =  __builtin_ctzll(legal_moves);
+			int lowestSetBit =  __builtin_ctzll(legal_moves_ull);
 			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
 		
 			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
 			
 			int diff; 
-			if(depth == rem_moves) diff = findDifference(boardAfterMove, color);
-			else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	
+			if(depth == search_depth) diff = findDifference(boardAfterMove, color);
+			else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	
 			if(diff > max_diff){
   	  	  		max_diff = diff;
 				best_move = legal_move;
@@ -376,17 +381,17 @@ int findBestMove(Board b, int color, int depth, int search_depth, int verbose, i
 		2. If there were no moves left even for opponent in previous iteration 
 		(is_parent_skipped == true) then the search tree has to end.
 	*/
-	if(num_moves == 0LL) {
+	if(num_moves == 0) {
 	
 		if(is_parent_skipped){
-			return findDifference(b,color)*mul;
+			best_diff.calc_max(findDifference(b,color));
 		}
 
-		else return findBestMove(b, OTHERCOLOR(color), depth, rem_moves, 0, -1, true, best_move);
+		else best_diff.calc_max(findBestMove(b, OTHERCOLOR(color), depth, search_depth, 0, -1, true, best_move));
 	}
 	
 	/* store the corresponding moves and difference*/
-	return best_child_diff.get_value() * mul;	
+	return best_diff.get_value() * mul;	
 }
 
 void ComputerTurn(Board *b, Player *player)
@@ -398,7 +403,7 @@ void ComputerTurn(Board *b, Player *player)
 	Move best_move = {-1,-1};
 
 	int best_diff= findBestMove(*b, color, 1, player->depth, 0, 1, true, best_move);
-	
+
 	/* if the best move is not possible then skip turn else print it*/
 	if(isStartMove(best_move)){
 		printf("No legal move left for Player %d. Skipping turn\n", color+1);
@@ -497,7 +502,7 @@ int main (int argc, const char * argv[])
 	}
 
 	PrintBoard(gameboard);
-	t = clock();
+
 	timer_start();
 	
 	do {
@@ -508,8 +513,9 @@ int main (int argc, const char * argv[])
 	} while(p1.move_possible | p2.move_possible);
 	
 	EndGame(gameboard);
-	double seconds = timer_elapsed();
-	cout<<"Time taken: "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
+	
+	seconds += timer_elapsed();
+	cout<<"Time taken: for FlipDisks "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
 	
 	return 0;
 }
