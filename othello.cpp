@@ -23,7 +23,6 @@ using namespace std;
 #define HUMAN 'h' // to identify player as human
 #define COMPUTER 'c' // to identify player as computer 
 #define CHUNK_SIZE 3 // for truncating some parallel execution to increase chunk size
-#define CHUNK_SIZE_1 10
 
 #define BOARD_BIT_INDEX(row,col) ((8 - (row)) * 8 + (8 - (col)))
 #define BOARD_BIT(row,col) (0x1LL << BOARD_BIT_INDEX(row,col))
@@ -67,26 +66,6 @@ typedef struct { int row; int col; } Move;
 */
 typedef struct { char type; int color; bool move_possible; int depth;} Player;
 
-
-/*
-	Comparator for the reducer. The reducer used is reducer_max. 
-	- The reducer consists of a pair of (Move, diff)
-	- diff is the difference between the number of disks of player vs opponent
-	- Move is the move which leads to that diff
-	- We have to maximize the diff
-	- In case difference is the same, we choose the move which has highest row and col to enforce determinism
-*/
-
-class MoveComparison {
-public:
-  bool operator()(const pair<Move, int>& p1, const pair<Move, int>& p2) const {
-	Move m1 = p1.first;
-	Move m2 = p2.first;
-	if(p1.second != p2.second) return p1.second < p2.second;
-	if(m1.row != m2.row) return m1.row > m2.row;
-	return (m1.col > m2.col);
-  }
-};
 
 Board start = { 
 	BOARD_BIT(4,5) | BOARD_BIT(5,4) /* X_BLACK */, 
@@ -273,46 +252,21 @@ Board NeighborMoves(Board b, int color)
 	return neighbors;
 }
 
-/*
-	return the set of board positions that represent legal
-	moves for color. this is the set of empty board positions  
-	that are adjacent to an opponent's disk where placing a
-	disk of color will cause one or more of the opponent's
-	disks to be flipped.
-*/
-class Sum
- {
- public:
- //	Required constructor, initialize to identity (0).
- 	Sum() : d_value() { }
- //   // Required reduce method
- 	void reduce(Sum* other) { d_value += other->d_value; }
- //     // Two update operations
- 	Sum& operator+=(const int& v) {
- 		d_value |= v; 
-		return *this;
- 	}
- 	int get_value() const { return d_value; }
-          
- 	private:
-		int d_value;
-};
-
-void addLegalMoves(int start, int end, ull my_neighbor_moves, Board *b, int color, int verbose, int domove, cilk::reducer_opor<ull> &legal_moves){
-	for(int row=end; row >= start; row--) {
-                ull thisrow = my_neighbor_moves & ROW8;
-                for(int col= 8 ; thisrow && (col >= 1); col--) {
-                        if (thisrow & COL8) {
-                                Move m = { row, col };
+void addLegalMoves(ull my_neighbor_moves, Board *b, int color, int verbose, int domove, Board *legal_moves){
+	for(int row= 8; row >= 1; row--) {
+        ull thisrow = my_neighbor_moves & ROW8;
+        for(int col= 8 ; thisrow && (col >= 1); col--) {
+            if (thisrow & COL8) {
+				Move m = { row, col };
 				int nflips = FlipDisks(m, b, color, verbose, domove);
 				if(nflips > 0 ) {
-					legal_moves |= BOARD_BIT(m.row, m.col);
+					legal_moves->disks[color] |= BOARD_BIT(m.row, m.col);
 				} 
-                        }
-                        thisrow >>= 1;
-                }
-                my_neighbor_moves >>= 8;
+            }
+            thisrow >>= 1;
         }
+        my_neighbor_moves >>= 8;
+    }
 
 	return;
 }
@@ -327,65 +281,19 @@ int CountBitsOnBoard(Board b, int color)
 	return ndisks;
 }
 
-/*int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
+int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 {
 	Board neighbors = NeighborMoves(b, color);
 	ull my_neighbor_moves = neighbors.disks[color];
 	
 	int num_moves = 0;
-	int possible_moves = CountBitsOnBoard(neighbors, color);
-	//cilk::reducer_opor<ull> possible_legal_moves(0);	
+	int neighbors = CountBitsOnBoard(neighbors, color);
 
-	//cout<<"lahude "<<possible_moves<<endl;
-	if(possible_moves >= CHUNK_SIZE_1){
+	addLegalMoves(my_neighbor_moves, &b, color, 0, 0, legal_moves);
 
-		cilk_spawn addLegalMoves(5, 8 , (my_neighbor_moves), &b, color, 0, 0, possible_legal_moves);
-		//cilk_spawn addLegalMoves(5, 6 , (my_neighbor_moves >> 16), &b, color, 0, 0, possible_legal_moves);
-		cilk_spawn addLegalMoves(1, 4 , (my_neighbor_moves >> 32), &b, color, 0, 0, possible_legal_moves);
-		//cilk_spawn addLegalMoves(1, 2 , (my_neighbor_moves >> 48), &b, color, 0, 0, possible_legal_moves);
-	}
-	else {
-		
-		addLegalMoves(4, 8 , my_neighbor_moves, &b, color, 0, 0, possible_legal_moves);
-
-		addLegalMoves(1, 4 , (my_neighbor_moves >> 32), &b, color, 0, 0, possible_legal_moves);
-	}	
-	//cilk_sync;	
-
-	legal_moves->disks[color] = possible_legal_moves.get_value();
-
-	//cout<<"lahude 2 "<<possible_legal_moves.get_value(); 
 	return CountBitsOnBoard(*legal_moves, color);
-}*/
+}
 
-void EnumerateLegalMoves(Board b, int color, Board &legal_moves){
-	cilk::reducer_opor<ull> reducer_legal_moves;
-	legal_moves.disks[color] = 0;
-	ull occupied_disks = b.disks[color] | b.disks[OTHERCOLOR(color)];
-	for(int row = 8; row >= 1; row--){
-		Board bb = b;
-		for(int col = 8; col >=1; col--){
-			Move m = {row, col};
-			if(((occupied_disks & MOVE_TO_BOARD_BIT(m)) == 0) && FlipDisks(m, &bb, color, 0, 0) > 0 ){
-				legal_moves.disks[color] |= MOVE_TO_BOARD_BIT(m);	
-			}
-		}
-	}
-	//legal_moves.disks[color] = reducer_legal_moves.get_value();
-	return;
-}
-void EndGame(Board b)
-{
-	int o_score = CountBitsOnBoard(b,O_WHITE);
-	int x_score = CountBitsOnBoard(b,X_BLACK);
-	printf("Game over. \n");
-	if (o_score == x_score)  {
-		printf("Tie game. Each player has %d disks\n", o_score);
-	} else { 
-		printf("X has %d disks. O has %d disks. %c wins.\n", x_score, o_score, 
-					(x_score > o_score ? 'X' : 'O'));
-	}
-}
 
 int findDifference(Board b, int color){
 	return CountBitsOnBoard(b, color) - CountBitsOnBoard(b, OTHERCOLOR(color));
@@ -400,46 +308,40 @@ bool isStartMove(Move m){
 
 /* finds best move by the computer.
 	b - current board config
-	parent_move - what was the move earlier to this iteration.
 	color - color of the player
-	rem_moves - remaining iterations to search for 
+	depth - current depth of the iteration in the search tree 
+	search_depth - max search depth provided by the user 
 	best_diff - cilk reducer (passed by the parent call) which stores the best difference found by this iteration.
 		The reducer stores the parent_move and the difference. 
 	mul - factor by which the best diff has to be multiplied to return the diff to the parent. This is in 
 		context with negamax algorithm. The max for player is -1*(max of opponent) assuming both play optimally. 
 */
-int findBestMove(Board b, int color, int depth, int rem_moves, int verbose, int mul, bool is_parent_skipped, Move &best_move){
+int findBestMove(Board b, int color, int depth, int search_depth, int verbose, int mul, bool is_parent_skipped, Move &best_move){
 
 	Move no_move = {-1, -1};
-	Board legal_moves_vector;
-	EnumerateLegalMoves(b, color, legal_moves_vector);	
-	//vector<Move> legal_moves_vector(legal_moves.begin(), legal_moves.end());	
-	//cout<<rem_moves<<"bhusdix "<<color<<" "<<legal_moves.get_value().size()<<endl;
-	int num_moves = CountBitsOnBoard(legal_moves_vector, color);
-	cilk::reducer_max<int> best_child_diff;	
-	int max=-65;
-	//for(list<Move>::const_iterator legal_move = legal_moves.begin(); legal_move != legal_moves.end(); legal_move++){
+	Board legal_moves;
+	int num_moves = EnumerateLegalMoves(b, color, legal_moves);	
+	
+	cilk::reducer_max<int> best_diff;	
+	int max_diff = -65;
+
 	if(depth != 1){ 
 		cilk_for(int i=0; i<num_moves; i++){
 			Board boardAfterMove = b;
 			ull legal_moves = legal_moves_vector.disks[color];
 			ull a = 1;
 			for(int j=0; j < i; j++){
-				
 				legal_moves ^= (a << __builtin_ctzll(legal_moves));
 			}
 			int lowestSetBit =  __builtin_ctzll(legal_moves);
 			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
-		//cout<<";laud "<< legal_move->row<<" "<<legal_move->col<<" "<<rem_moves<<endl;
-		//FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+			
 			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
-			  	  //legal_moves.push_back(legal_move);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
-			//if(rem_moves >= CHUNK_SIZE)
+			
 			if(rem_moves==depth) best_child_diff.calc_max(findDifference(boardAfterMove, color));
 			else {
 				int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	  	  	  
-			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
 				best_child_diff.calc_max(best_child_move);
 			}
 		}			
@@ -449,39 +351,33 @@ int findBestMove(Board b, int color, int depth, int rem_moves, int verbose, int 
 			Board boardAfterMove = b;
 			ull legal_moves = legal_moves_vector.disks[color];
 			ull a = 1;
-			for(int j=0; j < i; j++){
-				
+			for(int j=0; j < i; j++){		
 				legal_moves ^= (a << __builtin_ctzll(legal_moves));
 			}
 			int lowestSetBit =  __builtin_ctzll(legal_moves);
 			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
-		//cout<<";laud "<< legal_move->row<<" "<<legal_move->col<<" "<<rem_moves<<endl;
-		//FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+		
 			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
-			  	  //legal_moves.push_back(legal_move);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
-			//if(rem_moves >= CHUNK_SIZE)
+			
 			int diff; 
 			if(depth == rem_moves) diff = findDifference(boardAfterMove, color);
 			else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	
-			if(diff > max){
-  	  	  		max=diff;
+			if(diff > max_diff){
+  	  	  		max_diff = diff;
 				best_move = legal_move;
 			}
-			//else findBestMove(boardAfterMove, *legal_move, OTHERCOLOR(color), rem_moves-1, best_child_diff, 0, -1, false);
-				//best_child_diff.calc_max({legal_move, best_child_move.second});
-		}			
+		}	
+		best_diff.calc_max(max_diff);		
 	}
-	//cilk_sync;
+	
 	/* if there are no legal moves left then there can be 3 cases:
-		1. Even the first turn cannot be played by the player. In this we just skip.
-		2. Keep on searching the next best move by the opponent and try to minimize this. 
-		3. If there are no moves left even for opponent then the game has to end.
+		1. Keep on searching the next best move by the opponent and try to minimize this. 
+		2. If there were no moves left even for opponent in previous iteration 
+		(is_parent_skipped == true) then the search tree has to end.
 	*/
 	if(num_moves == 0LL) {
 	
-		//Board opponent_moves;
-		//EnumerateLegalMoves(b,1-color, opponent_moves);
 		if(is_parent_skipped){
 			return findDifference(b,color)*mul;
 		}
@@ -490,32 +386,26 @@ int findBestMove(Board b, int color, int depth, int rem_moves, int verbose, int 
 	}
 	
 	/* store the corresponding moves and difference*/
-	int diff = best_child_diff.get_value() * mul;
-	
-//	cout<<"koi pahycnha ki nahi "<<num_moves<<' '<<diff<<endl;
-	return diff;
+	return best_child_diff.get_value() * mul;	
 }
 
 void ComputerTurn(Board *b, Player *player)
 {
 
 	int color = player->color;
-
-//	cilk::reducer_max<pair<Move, int>, MoveComparison> best_diff;  
 	
 	/* start case when best move is unknown or not possible */
 	Move best_move = {-1,-1};
 
 	int best_diff= findBestMove(*b, color, 1, player->depth, 0, 1, true, best_move);
-	//best_move = best_diff.first;
-	/* if the best move is not possible then skip turn else print it*/
 	
-	//EnumerateLegalMoves(*b, color, legal_moves);
+	/* if the best move is not possible then skip turn else print it*/
 	if(isStartMove(best_move)){
 		printf("No legal move left for Player %d. Skipping turn\n", color+1);
 		player->move_possible = false;
 		return;
 	}
+
 	player->move_possible = true;
 
 	int nflips = FlipDisks(best_move, b, color, 1, 1);
@@ -560,6 +450,19 @@ void TakeTurn(Board *gameboard, Player *p){
 	else HumanTurn(gameboard, p->color);
 }
 
+void EndGame(Board b)
+{
+	int o_score = CountBitsOnBoard(b,O_WHITE);
+	int x_score = CountBitsOnBoard(b,X_BLACK);
+	printf("Game over. \n");
+	if (o_score == x_score)  {
+		printf("Tie game. Each player has %d disks\n", o_score);
+	} else { 
+		printf("X has %d disks. O has %d disks. %c wins.\n", x_score, o_score, 
+					(x_score > o_score ? 'X' : 'O'));
+	}
+}
+
 
 /*	1. Ask for inputs
 		2. Evaluate them
@@ -569,7 +472,6 @@ void TakeTurn(Board *gameboard, Player *p){
 */
 int main (int argc, const char * argv[]) 
 {
-	clock_t t;
 	Board gameboard = start;
 
 	cout<<"Enter c for computer, h for human \n";
@@ -607,9 +509,7 @@ int main (int argc, const char * argv[])
 	
 	EndGame(gameboard);
 	double seconds = timer_elapsed();
-	t = clock() - t;
-	double time  = t/((double)CLOCKS_PER_SEC);
-	cout<<"Time taken: "<<t<<" "<<time<<" "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
+	cout<<"Time taken: "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
 	
 	return 0;
 }
