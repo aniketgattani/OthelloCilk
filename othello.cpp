@@ -461,7 +461,9 @@ int findBestMove(Board b, int color, int depth, int rem_moves, int verbose, int 
 			  	  //legal_moves.push_back(legal_move);
 			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
 			//if(rem_moves >= CHUNK_SIZE)
-			int diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	
+			int diff; 
+			if(depth == rem_moves) diff = findDifference(boardAfterMove, color);
+			else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, rem_moves, 0, -1, false, best_move);	
 			if(diff > max){
   	  	  		max=diff;
 				best_move = legal_move;
