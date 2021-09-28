@@ -256,22 +256,25 @@ bool isOccupied(Board *b, Move m){
 	ull occupied_disks = (b->disks[O_WHITE] | b->disks[X_BLACK]);
 	return (occupied_disks & MOVE_TO_BOARD_BIT(m)) > 0LL;	
 }
-void addLegalMoves(ull my_neighbor_moves, Board *b, int color, int verbose, int domove, Board *legal_moves){
+void addLegalMoves(Board *b, int color, int verbose, int domove, Board *legal_moves){
+	cilk::reducer_opor<ull> legal_moves_reducer;
 	for(int row= 8; row >= 1; row--) {
-        	ull thisrow = my_neighbor_moves & ROW8;
-        	for(int col= 8 ; thisrow && (col >= 1); col--) {
+		//ull neighbor_moves = my_neighbor_moves;
+		//neighbor_moves >>= (8-row)*8;
+        	//ull thisrow = neighbor_moves & ROW8;
+        	for(int col= 8 ; (col >= 1); col--) {
             		Move m = {row, col};
-			if ((thisrow & COL8) && !isOccupied(b, m)) {
-				int nflips = FlipDisks(m, b, color, verbose, domove);
+			if (!isOccupied(b, m)) {
+				Board boardBeforeMove = *b;
+				int nflips = FlipDisks(m, &boardBeforeMove, color, verbose, domove);
 				if(nflips > 0 ) {
-					legal_moves->disks[color] |= BOARD_BIT(m.row, m.col);
+					legal_moves_reducer|= BOARD_BIT(m.row, m.col);
 				} 
             		}
-            		thisrow >>= 1;
+            		//thisrow >>= 1;
         	}
-        	my_neighbor_moves >>= 8;
     	}
-
+   	legal_moves->disks[color] = legal_moves_reducer.get_value();
 	return;
 }
 
@@ -287,13 +290,14 @@ int CountBitsOnBoard(Board b, int color)
 
 int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 {
-	Board neighbors = NeighborMoves(b, color);
-	ull my_neighbor_moves = neighbors.disks[color];
+	Board neighbors;
+	//NeighborMoves(b, color);
+	//ull my_neighbor_moves = neighbors.disks[color];
 	
 	int num_moves = 0;
 	int num_neighbors = CountBitsOnBoard(neighbors, color);
 
-	addLegalMoves(my_neighbor_moves, &b, color, 0, 0, legal_moves);
+	addLegalMoves(&b, color, 0, 0, legal_moves);
 
 	return CountBitsOnBoard(*legal_moves, color);
 }
