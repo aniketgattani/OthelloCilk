@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <cilk/cilk.h>
 #include <cilk/reducer_max.h>
+#include <cilk/reducer_opadd.h>
 #include <cilk/reducer_opor.h>
 #include <stdlib.h>
 #include <math.h>
@@ -328,55 +329,52 @@ int findBestMove(Board b, int color, int depth, int search_depth, int verbose, i
 
 	Move no_move = {-1, -1};
 	Board legal_moves = {0,0};
-	int num_moves = EnumerateLegalMoves(b, color, &legal_moves);	
-	
+	//int num_moves = EnumerateLegalMoves(b, color, &legal_moves);	
+	cilk::reducer_opadd<int> num_moves;
 	cilk::reducer_max<int> best_diff;	
 	int max_diff = -65;
 
 	if(depth != 1){ 
-		cilk_for(int i=0; i<num_moves; i++){
-			Board boardAfterMove = b;
-			ull legal_moves_ull = legal_moves.disks[color];
-			ull a = 1;
-			for(int j=0; j < i; j++){
-				legal_moves_ull ^= (a << __builtin_ctzll(legal_moves_ull));
-			}
-			int lowestSetBit =  __builtin_ctzll(legal_moves_ull);
-			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
-			
-			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
-			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
-			
-			if(search_depth==depth) best_diff.calc_max(findDifference(boardAfterMove, color));
-			else {
-				int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	  	  	  
-				best_diff.calc_max(best_child_move);
-			}
-		}			
-	}
+		cilk_for(int row= 16; row >= 1; row--) {
+			int ma = (2-row%2)*4;
+			for(int col= ma ; (col >= ma-3); col--) {
+            			Move legal_move = {(row+1)/2, col};
+				if (!isOccupied(&b, legal_move)) {
+					Board boardAfterMove = b;
+					int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+					if(nflips == 0) continue;
+					num_moves++;
+					PlaceOrFlip(legal_move, &boardAfterMove, color);                      
+					if(search_depth==depth) best_diff.calc_max(findDifference(boardAfterMove, color));
+					else {
+						int best_child_move = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	  	  	  
+						best_diff.calc_max(best_child_move);
+					}
+				} 
+            		}
+        	}
+    	}
 	else{
 		//PrintBoard(legal_moves);
-		for(int i=0; i<num_moves; i++){
-			Board boardAfterMove = b;
-			ull legal_moves_ull = legal_moves.disks[color];
-			ull a = 1;
-			for(int j=0; j < i; j++){		
-				legal_moves_ull ^= (a << __builtin_ctzll(legal_moves_ull));
-			}
-			int lowestSetBit =  __builtin_ctzll(legal_moves_ull);
-			Move legal_move = {8-lowestSetBit/8, 8-lowestSetBit%8};
-		
-			FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
-			PlaceOrFlip(legal_move, &boardAfterMove, color);                      
-			
-			int diff; 
-			if(depth == search_depth) diff = findDifference(boardAfterMove, color);
-			else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	
-			if(diff > max_diff){
-  	  	  		max_diff = diff;
-				best_move = legal_move;
-			}
-		}	
+		for(int row= 8; row >= 1; row--) {
+        		for(int col= 8 ; (col >= 1); col--) {
+            			Move legal_move = {row, col};
+				if (!isOccupied(&b, legal_move)) {
+					Board boardAfterMove = b;
+					int nflips = FlipDisks(legal_move, &boardAfterMove, color, 0, 1);
+					if(nflips == 0) continue;
+					num_moves++;
+					PlaceOrFlip(legal_move, &boardAfterMove, color);                      
+					int diff; 
+					if(depth == search_depth) diff = findDifference(boardAfterMove, color);
+					else diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, 0, -1, false, best_move);	
+					if(diff > max_diff){
+  	  	  				max_diff = diff;
+						best_move = legal_move;
+					}
+				} 
+            		}
+        	}
 		best_diff.calc_max(max_diff);		
 	}
 	
@@ -385,7 +383,7 @@ int findBestMove(Board b, int color, int depth, int search_depth, int verbose, i
 		2. If there were no moves left even for opponent in previous iteration 
 		(is_parent_skipped == true) then the search tree has to end.
 	*/
-	if(num_moves == 0) {
+	if(num_moves.get_value() == 0) {
 	
 		if(is_parent_skipped){
 			best_diff.calc_max(findDifference(b,color));
