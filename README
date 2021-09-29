@@ -45,3 +45,14 @@ Files:
       make runs # runs a serial version of your code on one worker
       make screen # runs your parallel code with cilkscreen
       make view # runs your parallel code with cilkview
+      
+
+Contents:
+  * othello.cpp - main program that runs othello game
+  * cilkscreen.out - contains cilkscreen ouput of the othello program with search depth 4
+  * cilkviews/ - directory containing all the cilkview outputs from search depth 1-7
+  * slurm_ouputs/ -  directory containing runtime ouput of the program when run on NOTS compute nodes. Each file is first run with serial code then we increment threads per execution for parallel flow
+  * othello.m & othello.d & othello.hpcstruct - directories & files containing HPCToolkit database
+  * cilk_ouput.batch - batch file that creates the cilkscreen.out for depth = 4  & cilkviews/ files for depths 1-7 as mentioned above
+  * default_inputs - directory containing all the inputs for search depth 1-7
+  * Othello Report - Report pdf for the assignment.
