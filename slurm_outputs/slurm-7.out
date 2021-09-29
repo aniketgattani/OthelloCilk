@@ -909,10 +909,10 @@ No legal move left for Player 1. Skipping turn
 No legal move left for Player 2. Skipping turn
 Game over. 
 X has 14 disks. O has 50 disks. O wins.
-Time taken: 97.7157 with workers: 1
+Time taken: 101.7157 with workers: 1
 
-real	1m37.749s
-user	1m37.714s
+real	1m41.749s
+user	1m41.714s
 sys	0m0.012s
 Enter c for computer, h for human 
 Player 1: Enter search depth for the computer 1: (At max 60): Player 2: Enter search depth for the computer 2: (At max 60):   1 2 3 4 5 6 7 8
@@ -8223,8 +8223,8 @@ No legal move left for Player 1. Skipping turn
 No legal move left for Player 2. Skipping turn
 Game over. 
 X has 14 disks. O has 50 disks. O wins.
-Time taken: 15.1547 with workers: 16
-242.24user 0.17system 0:15.17elapsed 1597%CPU (0avgtext+0avgdata 4896maxresident)k
+Time taken: 14.4069 with workers: 16
+230.51user 0.17system 0:14.41elapsed 1597%CPU (0avgtext+0avgdata 4896maxresident)k
 0inputs+64outputs (0major+6286minor)pagefaults 0swaps
 Enter c for computer, h for human 
 Player 1: Enter search depth for the computer 1: (At max 60): Player 2: Enter search depth for the computer 2: (At max 60):   1 2 3 4 5 6 7 8
