@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cilkscreen ./othello < default_inputs/default_input.4 &> cilkscreen.out
+
+for ((i = 1; i <= 7; i++)); do
+  cilkview ./othello  < default_inputs/default_input.$i &> cilkviews/cilkview.$i 
+done
