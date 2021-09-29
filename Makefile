@@ -12,7 +12,7 @@ ifneq ($(W),)
 XX=CILK_NWORKERS=$(W)
 endif
 
-I=default_input
+I=default_inputs/default_input.7
 
 all: $(OBJ)
 

@@ -9,7 +9,9 @@
 #SBATCH --time=00:30:00 
 #SBATCH --partition=interactive
 #SBATCH --reservation=comp422
-time ./othello-serial < default_input
+
+args=("$@")
+time ./othello-serial < default_inputs/default_input.${args[0]}
 for ((i = 1; i <= 32; i++)); do 
-  CILK_NWORKERS=$i time ./othello < default_input 
+  CILK_NWORKERS=$i time ./othello < default_inputs/default_input.${args[0]}
 done

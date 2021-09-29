@@ -287,7 +287,7 @@ void addLegalMoves(Board *b, Board *neighbors, int color, int verbose, int domov
 	ull neighbor_moves = neighbors->disks[color];
 	for(int row= 8; row >= 1; row--) {
 		ull thisrow = neighbor_moves & ROW8;
-    	for(int col= 8 ; thisrow && (col >= 1); col--) {
+    		for(int col= 8 ; thisrow && (col >= 1); col--) {
         		Move m = {row, col};
 			if (!isOccupied(b, m)) {
 				Board boardBeforeMove = *b;
@@ -315,14 +315,12 @@ int CountBitsOnBoard(Board b, int color)
 
 int EnumerateLegalMoves(Board b, int color, Board *legal_moves)
 {
-	Board neighbors;
-	//NeighborMoves(b, color);
-	//ull my_neighbor_moves = neighbors.disks[color];
+	Board neighbors = NeighborMoves(b, color);
 	
 	int num_moves = 0;
 	int num_neighbors = CountBitsOnBoard(neighbors, color);
 
-	addLegalMoves(&b, color, 0, 0, legal_moves);
+	addLegalMoves(&b, &neighbors, color, 0, 0, legal_moves);
 
 	return CountBitsOnBoard(*legal_moves, color);
 }
@@ -391,7 +389,7 @@ int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool 
 	
 		
 	if(num_moves == 0) {	
-		if(is_parent_skipped){
+		if(is_prev_skipped){
 			best_diff.calc_max(findDifference(b,color));
 		}
 
@@ -525,10 +523,10 @@ int main (int argc, const char * argv[])
 
 	} while(p1.move_possible | p2.move_possible);
 	
-	seconds += timer_elapsed();
+	execution_time += timer_elapsed();
 	EndGame(gameboard);
 	
-	cout<<"Time taken: "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
+	cout<<"Time taken: "<<execution_time<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
 	
 	return 0;
 }
