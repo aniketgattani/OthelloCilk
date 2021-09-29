@@ -15,10 +15,8 @@
 #include <utility> // for using std::pair
 using namespace std;
 
-double seconds = 0;
+double execution_time = 0;
 int VERBOSE = 1;
-double iterations = 0;
-double tot_num_moves = 0;
 #define BIT 0x1
 
 #define X_BLACK 0
@@ -27,7 +25,6 @@ double tot_num_moves = 0;
 
 #define HUMAN 'h' // to identify player as human
 #define COMPUTER 'c' // to identify player as computer 
-#define CHUNK_SIZE 3 // for truncating some parallel execution to increase chunk size
 
 #define BOARD_BIT_INDEX(row,col) ((8 - (row)) * 8 + (8 - (col)))
 #define BOARD_BIT(row,col) (0x1LL << BOARD_BIT_INDEX(row,col))
@@ -186,6 +183,16 @@ int FlipDisks(Move m, Board *b, int color, int verbose, int domove)
 	return nflips;
 }
 
+
+/*
+	Comparator for the reducer. The reducer used is reducer_max. 
+	- The reducer consists of a pair of (Move, diff)
+	- diff is the difference between the number of disks of player vs opponent
+	- Move is the move which leads to that diff
+	- We have to maximize the diff
+	- In case difference is the same, we choose the move which has lowest row and col to enforce determinism
+*/
+
 class MoveComparison {
 public:
   bool operator()(const pair<Move, int>& p1, const pair<Move, int>& p2) const {
@@ -267,31 +274,33 @@ Board NeighborMoves(Board b, int color)
 	neighbors.disks[color] &= ~(b.disks[X_BLACK] | b.disks[O_WHITE]);
 	return neighbors;
 }
+
+/*checks if a position is already occupied by someone */
 bool isOccupied(Board *b, Move m){
 	
 	ull occupied_disks = (b->disks[O_WHITE] | b->disks[X_BLACK]);
 	return (occupied_disks & MOVE_TO_BOARD_BIT(m)) > 0LL;	
 }
-void addLegalMoves(Board *b, int color, int verbose, int domove, Board *legal_moves){
-	cilk::reducer_opor<ull> legal_moves_reducer;
+
+/* iterates over all possible neighbors and checks if they are legal_moves*/
+void addLegalMoves(Board *b, Board *neighbors, int color, int verbose, int domove, Board *legal_moves){
+	ull neighbor_moves = neighbors->disks[color];
 	for(int row= 8; row >= 1; row--) {
-		//ull neighbor_moves = my_neighbor_moves;
-		//neighbor_moves >>= (8-row)*8;
-        	//ull thisrow = neighbor_moves & ROW8;
-        	for(int col= 8 ; (col >= 1); col--) {
-            		Move m = {row, col};
+		ull thisrow = neighbor_moves & ROW8;
+    	for(int col= 8 ; thisrow && (col >= 1); col--) {
+        		Move m = {row, col};
 			if (!isOccupied(b, m)) {
 				Board boardBeforeMove = *b;
 				int nflips = FlipDisks(m, &boardBeforeMove, color, verbose, domove);
 				if(nflips > 0 ) {
-					legal_moves_reducer|= BOARD_BIT(m.row, m.col);
+					legal_moves->disks[color] |= BOARD_BIT(m.row, m.col);
 				} 
-            		}
-            		//thisrow >>= 1;
         	}
+        	thisrow >>= 1;
     	}
-   	legal_moves->disks[color] = legal_moves_reducer.get_value();
-	return;
+    	neighbor_moves >>= 8;
+    }
+   	return;
 }
 
 int CountBitsOnBoard(Board b, int color)
@@ -335,12 +344,13 @@ bool isStartMove(Move m){
 	color - color of the player
 	depth - current depth of the iteration in the search tree 
 	search_depth - max search depth provided by the user 
-	best_diff - cilk reducer (passed by the parent call) which stores the best difference found by this iteration.
-		The reducer stores the parent_move and the difference. 
 	mul - factor by which the best diff has to be multiplied to return the diff to the parent. This is in 
-		context with negamax algorithm. The max for player is -1*(max of opponent) assuming both play optimally. 
+		context with negamax algorithm. The max for player is -1*(max of opponent) assuming both play optimally.
+	is_prev_skipped - to check if the previous iteration was skipped. If yes then we halt the search else continue
+		skipping the player's turn 
+	best_move - a pointer to store the best move for the given search params.
 */
-int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool is_parent_skipped, Move &best_move){
+int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool is_prev_skipped, Move &best_move){
 
 	Move no_move = {-1, -1};
 	Board legal_moves = {0,0};
@@ -349,9 +359,13 @@ int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool 
 	cilk::reducer_max<int> best_diff;
 	cilk::reducer_max<pair<Move, int>, MoveComparison> best_move_reducer;
 	int max_diff = -65;
+	/* initialize this reducer so that it doesn't throw garbage values */
+
 	best_move_reducer.calc_max({no_move, max_diff});	
+	
 	cilk_for(int i = 0; i < num_moves; i++) {
 		ull legal_moves_ull = legal_moves.disks[color];
+		/* this conversion is needed to get a Move from bit config */
 		for(int j=0; j < i; j++){		
 			legal_moves_ull ^= (1LL << __builtin_ctzll(legal_moves_ull));
 		}
@@ -364,23 +378,18 @@ int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool 
 			if(nflips == 0) continue;
 			PlaceOrFlip(legal_move, &boardAfterMove, color);
 			int diff;                      
-			if(search_depth==depth) diff = findDifference(boardAfterMove, color);
+			if(search_depth==depth) {
+				diff = findDifference(boardAfterMove, color);
+			}
 			else {
 				diff = findBestMove(boardAfterMove, OTHERCOLOR(color), depth+1, search_depth, -1, false, best_move);	  	  	  
 			}
 			best_diff.calc_max(diff);				 
-            		if(depth==1) best_move_reducer.calc_max({legal_move, diff});
-        	}
+            if(depth==1) best_move_reducer.calc_max({legal_move, diff});
     	}
+    }
 	
-	//tot_num_moves += num_moves;
-	//iterations++;
 		
-	/* if there are no legal moves left then there can be 3 cases:
-		1. Keep on searching the next best move by the opponent and try to minimize this. 
-		2. If there were no moves left even for opponent in previous iteration 
-		(is_parent_skipped == true) then the search tree has to end.
-	*/
 	if(num_moves == 0) {	
 		if(is_parent_skipped){
 			best_diff.calc_max(findDifference(b,color));
@@ -389,7 +398,7 @@ int findBestMove(Board b, int color, int depth, int search_depth, int mul, bool 
 		else best_diff.calc_max(findBestMove(b, OTHERCOLOR(color), depth, search_depth, -1, true, best_move));
 	}
 	
-	/* store the corresponding moves and difference*/
+	/* store the corresponding moves and return the difference by multiplying with the given multiplier*/
 	if(depth==1) best_move = best_move_reducer.get_value().first;
 	return best_diff.get_value() * mul;	
 }
@@ -519,7 +528,7 @@ int main (int argc, const char * argv[])
 	seconds += timer_elapsed();
 	EndGame(gameboard);
 	
-	cout<<"Time taken: "<<seconds<<"avg "<<(tot_num_moves/iterations)<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
+	cout<<"Time taken: "<<seconds<<" with workers: "<<__cilkrts_get_nworkers()<<endl;
 	
 	return 0;
 }
