@@ -1,4 +1,6 @@
-Cilkscreen Race Detector V2.0.0, Build 4501
+
+Cilkview: Generating scalability data
+Cilkview Scalability Analyzer V2.0.0, Build 4501
 Enter c for computer, h for human 
 Player 1: Enter search depth for the computer 1: (At max 60): Player 2: Enter search depth for the computer 2: (At max 60):   1 2 3 4 5 6 7 8
 1 . . . . . . . .
@@ -916,5 +918,53 @@ No legal move left for Player 1. Skipping turn
 No legal move left for Player 2. Skipping turn
 Game over. 
 X has 36 disks. O has 28 disks. X wins.
-Time taken: 0.00242742 with workers: 1
-No errors found by Cilkscreen
+Time taken: 25.1485 with workers: 1
+
+Whole Program Statistics
+1) Parallelism Profile
+   Work :					 340,140,717 instructions
+   Span :					 18,907,146 instructions
+   Burdened span :				 301,879,254 instructions
+   Parallelism :				 17.99
+   Burdened parallelism :			 1.13
+   Number of spawns/syncs:			 276,592
+   Average instructions / strand :		 409
+   Strands along span :				 23,781
+   Average instructions / strand on span :	 795
+   Total number of atomic instructions : 	 278,349
+   Frame count :				 570,119
+
+2) Speedup Estimate
+     2 processors:	 0.80 - 2.00
+     4 processors:	 0.72 - 4.00
+     8 processors:	 0.69 - 8.00
+    16 processors:	 0.68 - 16.00
+    32 processors:	 0.67 - 17.99
+    64 processors:	 0.67 - 17.99
+   128 processors:	 0.66 - 17.99
+   256 processors:	 0.66 - 17.99
+
+Cilk Parallel Region(s) Statistics - Elapsed time: 0.021 seconds
+1) Parallelism Profile
+   Work :					 329,920,727 instructions
+   Span :					 8,687,156 instructions
+   Burdened span :				 291,659,264 instructions
+   Parallelism :				 37.98
+   Burdened parallelism :			 1.13
+   Number of spawns/syncs:			 276,592
+   Average instructions / strand :		 397
+   Strands along span :				 11,890
+   Average instructions / strand on span :	 730
+   Total number of atomic instructions : 	 278,349
+   Frame count :				 570,119
+   Entries to parallel region :			 352
+
+2) Speedup Estimate
+     2 processors:	 0.80 - 2.00
+     4 processors:	 0.73 - 4.00
+     8 processors:	 0.69 - 8.00
+    16 processors:	 0.68 - 16.00
+    32 processors:	 0.67 - 32.00
+    64 processors:	 0.67 - 37.98
+   128 processors:	 0.67 - 37.98
+   256 processors:	 0.67 - 37.98
