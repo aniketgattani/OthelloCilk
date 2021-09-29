@@ -45,6 +45,7 @@ Files:
       make runs # runs a serial version of your code on one worker
       make screen # runs your parallel code with cilkscreen
       make view # runs your parallel code with cilkview
+      make runp-hpc # runs hpctoolkit with the options -e REALTIME@1000 -t
       
 
 Contents:
